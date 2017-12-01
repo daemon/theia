@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw
 from scipy.signal import correlate
 from sklearn.cluster import DBSCAN
 import cv2
@@ -10,14 +10,15 @@ import mnist
 class Document(object):
     def __init__(self, file):
         im = Image.open(file)
-        im = im.convert("L")
-        image_data = self.crop(np.array(im))
-        self.items = self.segment(image_data)
+        im.show()
+        self.image_data = self.crop(np.array(im))
+        self.items = self.segment(self.image_data)
         self.grade()
 
-    def _compute_min_frame(self, data, dim=0, dim_out=1, mean_min=100, std_max=20):
-        mean_color = np.mean(data, dim)
-        color_std = np.sqrt(np.var(cv2.Laplacian(data, cv2.CV_64F), dim))
+    def _compute_min_frame(self, data, dim=0, dim_out=1, mean_min=100, std_max=100):
+        mean_color = np.mean(np.mean(data, 2), dim)
+        data = cv2.cvtColor(data, cv2.COLOR_RGB2GRAY)
+        color_std = np.max(cv2.Laplacian(data, cv2.CV_64F), dim)
         mask = np.logical_and(mean_color > mean_min, color_std < std_max)
         l = data.shape[dim_out]
         for min_left in range(l):
@@ -35,7 +36,6 @@ class Document(object):
         image_data = image_data[:, min_left:min_right]
         min_left, min_right = self._compute_min_frame(image_data, 1, 0)
         image_data = image_data[min_left:min_right, :]
-        image_data = image_data[image_data.shape[0] // 10:, :]
         return image_data
 
     def split_multiply_bar(self, img, slope_max=0.3):
@@ -59,6 +59,7 @@ class Document(object):
         return top, bottom
 
     def segment(self, image_data, k_factor=10, pos_threshold=20, rh_threshold=0.035):
+        image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2GRAY)
         proc_data = cv2.Canny(image_data, 100, 255)
         self.paper_height, self.paper_width = h, w = proc_data.shape
 
@@ -98,7 +99,9 @@ class Document(object):
                     distances[l1, l2] = min(np.linalg.norm(p2 - p11), np.linalg.norm(p2 - p12),\
                         np.linalg.norm(p2 - p13), np.linalg.norm(p2 - p14))
             distances = sorted(list(distances.items()), key=lambda x: x[1])[:len(data.keys()) - n_questions]
-            for (lbl, merge_lbl), _ in distances:
+            for (lbl, merge_lbl), dist in distances:
+                if dist > min(self.paper_width, self.paper_height) / 20:
+                    continue
                 data[lbl].extend(data[merge_lbl])
                 del data[merge_lbl]
             return data
@@ -129,15 +132,20 @@ class Document(object):
             rx, ry, rw, rh = cv2.boundingRect(cluster)
             segment = proc_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
             im_data = image_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
-            Image.fromarray(im_data).show()
-            question, answer = self.split_multiply_bar(im_data)
+            try:
+                question, answer = self.split_multiply_bar(im_data)
+            except TypeError:
+                continue
             question_features, answer_features = segment_digits(question), segment_digits(answer)
-            items.append((question_features, answer_features))
+            items.append((question_features, answer_features, (rx, ry, rw, rh)))
         return items
 
     def grade(self):
         accuracy = []
-        for i, (question_features, answer_features) in enumerate(self.items):
+        font = ImageFont.truetype("DejaVuSans.ttf", self.paper_width // 20)
+        image = Image.fromarray(self.image_data.copy())
+        graphics = ImageDraw.Draw(image)
+        for i, (question_features, answer_features, rect) in enumerate(self.items):
             areas = []
             labels = []
             digit_order = []
@@ -161,10 +169,13 @@ class Document(object):
             labels = []
             digit_order = []
             for bounding_rect, digit in question_features:
+                lbl, prob = mnist.model.label(digit, draw_input=False)
+                if prob < 0.85:
+                    continue
                 rx, ry, rw, rh = bounding_rect
                 digit_order.append((rx + rw) * (ry + rh))
                 areas.append(np.prod(digit.shape))
-                labels.append(mnist.model.label(digit, draw_input=False)[0])
+                labels.append(lbl)
             labels = np.array(labels)
             digit_order = np.array(digit_order)
             area_order = np.argsort(areas)[-3:]
@@ -172,11 +183,26 @@ class Document(object):
             digits = labels[area_order]
             digit_order = digit_order[area_order]
             digits = digits[np.argsort(digit_order)]
-            true_answer = (10 * digits[0] + digits[1]) * digits[2]
+            try:
+                true_answer = (10 * digits[0] + digits[1]) * digits[2]
+            except IndexError:
+                continue
 
             is_correct = true_answer == answer
             checkmark = "✓" if is_correct else "✗"
+            fill = (100, 220, 20) if is_correct else (255, 0, 0)
             print("{} × {} = {} {}".format(10 * digits[0] + digits[1], digits[2], answer, checkmark))
+
+            graphics.text((rect[1] - self.paper_width / 30, rect[0]), checkmark, font=font, fill=fill)
             accuracy.append(int(is_correct))
-        print("Grade: {}%".format(100 *np.sum(accuracy) / len(accuracy)))
+
+        grade = 100 * np.sum(accuracy) / len(accuracy)
+        base_grade = round(grade)
+        if abs(grade - base_grade) > 1E-6:
+            grade_str = str(round(grade, 1))
+        else:
+            grade_str = str(int(round(grade)))
+        graphics.text((10, 10), "{}%".format(grade_str), font=font, fill=(255, 0, 0))
+        image.show()
+        print("Grade: {}%".format(grade_str))
 
