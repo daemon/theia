@@ -1,6 +1,6 @@
 from PIL import Image
 from scipy.signal import correlate
-from sklearn.cluster import KMeans
+from sklearn.cluster import DBSCAN
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -58,40 +58,52 @@ class Document(object):
         bottom = img[mult_height + 3:, :]
         return top, bottom
 
-    def segment(self, image_data, k_factor=10, pos_threshold=20):
+    def segment(self, image_data, k_factor=10, pos_threshold=20, rh_threshold=0.035):
         proc_data = cv2.Canny(image_data, 100, 255)
-        h, w = proc_data.shape
+        self.paper_height, self.paper_width = h, w = proc_data.shape
 
         cluster_data = np.stack(np.where(proc_data >= pos_threshold), 1)
-
-        def squashed_kmeans(cluster_data, n_clusters, k_factor=k_factor, k_dim=0, dist_cutoff=np.inf):
-            fit_data = np.copy(cluster_data)
-            if k_dim is not None:
-                fit_data[:, k_dim] = fit_data[:, k_dim] / k_factor
-
-            kmeans = KMeans(n_clusters).fit(fit_data)
+        def cluster_dbscan(cluster_data, eps, core_pts):
+            dbscan = DBSCAN(eps, core_pts).fit(cluster_data)
             data = {}
-            for l, c in zip(kmeans.labels_, cluster_data):
+            for l, c in zip(dbscan.labels_, cluster_data):
                 try:
                     data[l].append(c)
                 except KeyError:
                     data[l] = [c]
-            for l in data.keys():
-                filtered_list = []
-                std = np.sqrt(np.var(np.array(data[l])))
-                for c in data[l]:
-                    if np.linalg.norm(c - kmeans.cluster_centers_[l]) < dist_cutoff * std:
-                        filtered_list.append(c)
-                data[l] = filtered_list
+
+            n_questions = 0
+            brects = {}
+            for l, cluster in list(data.items()):
+                ry, rx, rh, rw = rect = cv2.boundingRect(np.array(cluster))
+                rh_pct = rh / w
+                if rh_pct < rh_threshold:
+                    n_questions += 1
+                    del data[l]
+                brects[l] = rect
+
+            if n_questions >= len(data.keys()):
+                return data
+
+            distances = {}
+            for l1, cluster1 in data.items():
+                ry1, rx1, rh1, rw1 = brects[l1]
+                p11, p12, p13, p14 = np.array([ry1, rx1]), np.array([ry1 + rh1, rx1]),\
+                    np.array([ry1, rx1 + rw1]), np.array([ry1 + rh1, rx1 + rw1])
+                for l2, cluster2 in data.items():
+                    ry2, rx2, rh2, rw2 = brects[l2]
+                    p2 = np.array([ry2, rx2])
+                    if l1 == l2 or rh2 > rh1:
+                        continue
+                    distances[l1, l2] = min(np.linalg.norm(p2 - p11), np.linalg.norm(p2 - p12),\
+                        np.linalg.norm(p2 - p13), np.linalg.norm(p2 - p14))
+            distances = sorted(list(distances.items()), key=lambda x: x[1])[:len(data.keys()) - n_questions]
+            for (lbl, merge_lbl), _ in distances:
+                data[lbl].extend(data[merge_lbl])
+                del data[merge_lbl]
             return data
 
-        data = squashed_kmeans(cluster_data, 2, k_dim=0)
-        group1 = np.array(data[0])
-        group2 = np.array(data[1])
-        data1 = squashed_kmeans(group1, 6, k_dim=1)
-        data2 = squashed_kmeans(group2, 6, k_dim=1)
-        data2 = {l + 6: val for l, val in data2.items()}
-        data1.update(data2)
+        data1 = cluster_dbscan(cluster_data, h / 35, 5)
 
         def min_dist(contour1, contour2):
             min_dist = np.inf
@@ -117,6 +129,7 @@ class Document(object):
             rx, ry, rw, rh = cv2.boundingRect(cluster)
             segment = proc_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
             im_data = image_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
+            Image.fromarray(im_data).show()
             question, answer = self.split_multiply_bar(im_data)
             question_features, answer_features = segment_digits(question), segment_digits(answer)
             items.append((question_features, answer_features))
@@ -124,14 +137,14 @@ class Document(object):
 
     def grade(self):
         accuracy = []
-        for question_features, answer_features in self.items:
+        for i, (question_features, answer_features) in enumerate(self.items):
             areas = []
             labels = []
             digit_order = []
             for bounding_rect, digit in answer_features:
                 digit_order.append(bounding_rect[0])
                 areas.append(np.prod(digit.shape))
-                labels.append(mnist.model.label(digit)[0])
+                labels.append(mnist.model.label(digit, draw_input=False)[0])
             labels = np.array(labels)
             digit_order = np.array(digit_order)
             area_order = np.argsort(areas)[-3:]
@@ -139,15 +152,19 @@ class Document(object):
             digits = labels[area_order]
             digit_order = digit_order[area_order]
             digits = digits[np.argsort(digit_order)]
-            answer = np.sum(np.power(10, np.arange(3)[::-1]) * digits)
+            try:
+                answer = np.sum(np.power(10, np.arange(3)[::-1]) * digits)
+            except ValueError:
+                answer = None
 
             areas = []
             labels = []
             digit_order = []
             for bounding_rect, digit in question_features:
-                digit_order.append(bounding_rect[0] * bounding_rect[1])
+                rx, ry, rw, rh = bounding_rect
+                digit_order.append((rx + rw) * (ry + rh))
                 areas.append(np.prod(digit.shape))
-                labels.append(mnist.model.label(digit)[0])
+                labels.append(mnist.model.label(digit, draw_input=False)[0])
             labels = np.array(labels)
             digit_order = np.array(digit_order)
             area_order = np.argsort(areas)[-3:]
@@ -156,6 +173,10 @@ class Document(object):
             digit_order = digit_order[area_order]
             digits = digits[np.argsort(digit_order)]
             true_answer = (10 * digits[0] + digits[1]) * digits[2]
-            accuracy.append(int(true_answer == answer))
-        print("Accuracy: {}".format(np.sum(accuracy) / len(accuracy)))
+
+            is_correct = true_answer == answer
+            checkmark = "✓" if is_correct else "✗"
+            print("{} × {} = {} {}".format(10 * digits[0] + digits[1], digits[2], answer, checkmark))
+            accuracy.append(int(is_correct))
+        print("Grade: {}%".format(100 *np.sum(accuracy) / len(accuracy)))
 

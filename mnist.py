@@ -84,8 +84,8 @@ class MnistDataset(data.Dataset):
                 arr = arr + 50 * np.random.normal(size=(28, 28))
             if random.random() < 0.5:
                 arr = arr + 255 * np.random.binomial(1, 0.05, size=(28, 28))
-            arr = np.roll(arr, random.randint(-4, 4), 0)
-            arr = np.roll(arr, random.randint(-4, 4), 1)
+            arr = np.roll(arr, random.randint(-2, 2), 0)
+            arr = np.roll(arr, random.randint(-2, 2), 1)
             arr = (arr - np.mean(arr)) / np.sqrt(np.var(arr) + 1E-6)
             arr = arr.astype(np.float32)
             return torch.from_numpy(arr), lbl
@@ -105,11 +105,11 @@ class ConvModel(SerializableModule):
         self.conv2 = nn.Conv2d(48, 64, 5)
         self.bn2 = nn.BatchNorm2d(64, affine=False)
         self.pool = nn.MaxPool2d(2)
-        self.dropout = nn.Dropout(0.4)
+        self.dropout = nn.Dropout(0.6)
         self.fc1 = nn.Linear(1024, 1024)
         self.fc2 = nn.Linear(1024, 10)
 
-    def label(self, digit):
+    def label(self, digit, draw_input=False):
         pad_w = max(digit.shape[1] - digit.shape[0], 0)
         std_pad = 5
         pad_w1 = pad_w // 2 + std_pad
@@ -120,6 +120,8 @@ class ConvModel(SerializableModule):
 
         digit = Image.fromarray(np.pad(digit, ((pad_w1, pad_w2), (pad_h1, pad_h2)), "constant"))
         x = np.array(digit.resize((28, 28), Image.BILINEAR), dtype=np.float32)
+        if draw_input:
+            Image.fromarray(x).show()
         x = (x - np.mean(x)) / np.sqrt(np.var(x) + 1E-6)
         x = Variable(torch.from_numpy(x), volatile=True).cuda()
         x = x.unsqueeze(0)
