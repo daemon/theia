@@ -1,7 +1,7 @@
 from collections import ChainMap
 import argparse
 
-import kumon
+import kumon.document as doc
 import mnist
 
 class ConfigBuilder(object):
@@ -37,7 +37,7 @@ def main():
     config = builder.config_from_argparse(parser)
 
     mnist.init_model(config["input_file"], not config["no_cuda"])
-    document = kumon.Document(config["input"])
+    document = doc.Document(config["input"])
 
 if __name__ == "__main__":
     main()
