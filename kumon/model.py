@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from mnist import SerializableModule
+from mnist import SerializableModule, pad_square
 
 def iou(rect1, rect2):
     ix1 = torch.max([rect1[0], rect2[0]])
@@ -31,22 +31,32 @@ def iou(rect1, rect2):
 class CNNModel(SerializableModule):
     def __init__(self):
         super().__init__()
-        self.conv0 = nn.Conv2d(1, 32, 16)
-        self.bn0 = nn.BatchNorm2d(32, affine=False)
-        self.conv1 = nn.Conv2d(32, 64, 16)
-        self.bn1 = nn.BatchNorm2d(64, affine=False)
+        self.conv0 = nn.Conv2d(1, 16, 4)
+        self.bn0 = nn.BatchNorm2d(16, affine=False)
+        self.conv1 = nn.Conv2d(16, 16, 4)
+        self.bn1 = nn.BatchNorm2d(16, affine=False)
         self.pool = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(64 * 16, 3)
+        self.fc1 = nn.Linear(16 * 25, 4)
 
     def loss(self, scores, labels):
         criterion = nn.CrossEntropyLoss()
         labels = Variable(labels, requires_grad=False).cuda()
         return criterion(scores, labels)
 
+    def label(self, image, draw_input=False):
+        image = Image.fromarray(pad_square(image))
+        x = np.array(image.resize((16, 16), Image.BILINEAR), dtype=np.float32)
+        if draw_input:
+            Image.fromarray(x).show()
+        x = (x - np.mean(x)) / np.sqrt(np.var(x) + 1E-6)
+        x = Variable(torch.from_numpy(x), volatile=True).cuda()
+        x = x.unsqueeze(0)
+        ret = F.softmax(self.forward(x)).cpu().data[0].numpy()
+        return np.argmax(ret), np.max(ret)
+
     def forward(self, x):
         x = x.unsqueeze(1)
         x = self.bn0(F.relu(self.conv0(x)))
-        x = self.pool(x)
         x = self.bn1(F.relu(self.conv1(x)))
         x = self.pool(x)
         x = x.view(x.size(0), -1)
@@ -60,7 +70,7 @@ class KumonDataset(data.Dataset):
         self.use_clean = use_clean
 
     def __len__(self):
-        return len(self.examples) + 2 * int(len(self.examples))
+        return len(self.examples)
 
     @staticmethod
     def _erase_region(image, rect):
@@ -80,9 +90,9 @@ class KumonDataset(data.Dataset):
             for d in data:
                 rect = d["rect"]
                 self._erase_region(image, rect)
-            a = random.randint(0, image.shape[0] - 64)
-            b = random.randint(0, image.shape[1] - 64)
-            image = image[a:a + 64, b:b + 64]
+            a = random.randint(0, image.shape[0] - 16)
+            b = random.randint(0, image.shape[1] - 16)
+            image = image[a:a + 16, b:b + 16]
             t = 0
         else:
             rand_choice = random.choice(data)
@@ -97,11 +107,17 @@ class KumonDataset(data.Dataset):
             pad21 = random.randint(0, h - min_len)
             pad22 = max(0, h - min_len - pad21)
             image = np.pad(image, ((pad11, pad12), (pad21, pad22)), mode="constant")
-            image = np.array(Image.fromarray(image).resize((64, 64), Image.BILINEAR))
+            image = Image.fromarray(image).resize((16, 16), Image.BILINEAR)
+            if random.random() < 0.5:
+                image = image.rotate(random.randint(-15, 15))
+            image = np.array(image)
         if random.random() < 0.5 and not self.use_clean:
-            image = image + np.abs(15 * np.random.normal(size=(64, 64)))
+            image = image + np.abs(15 * np.random.normal(size=(16, 16)))
         if random.random() < 0.5 and not self.use_clean:
-            image = image + 100 * np.random.binomial(1, 0.005, size=(64, 64))
+            image = image + 100 * np.random.binomial(1, 0.005, size=(16, 16))
+        if not self.use_clean:
+            image = np.roll(image, random.randint(-4, 4), 0)
+            image = np.roll(image, random.randint(-4, 4), 1)
         image = (image - np.mean(image)) / np.sqrt(np.var(image) + 1E-6)
         return torch.from_numpy(image).float(), t
 
@@ -112,9 +128,12 @@ class KumonDataset(data.Dataset):
             full_name = os.path.join(directory, name)
             if os.path.isfile(full_name) and full_name.endswith(".dat"):
                 img_arr = np.array(Image.open(full_name[:-4]).convert("L"))
-                _, img_arr = cv2.threshold(cv2.Laplacian(img_arr, cv2.CV_64F), 10, 255, cv2.THRESH_BINARY)
+                img_arr2 = cv2.GaussianBlur(img_arr, (9, 9), 1)
+                img_arr = cv2.adaptiveThreshold(img_arr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 20)
+                img_arr2 = cv2.adaptiveThreshold(img_arr2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 10)
+                img_arr = 0.5 * img_arr + 0.5 * img_arr2
                 img = Image.fromarray(img_arr)
-                img.thumbnail((384, 384))
+                img.thumbnail((800, 800))
                 factor = img_arr.shape[1] / img.size[0]
 
                 with open(full_name) as f:
@@ -152,10 +171,10 @@ def draw_predictions(image, prediction):
 def train(args):
     if args.in_file:
         model.load(args.in_file)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
 
     train_set, test_set = KumonDataset.splits(args)
-    train_loader = data.DataLoader(train_set, batch_size=32, shuffle=True, drop_last=True)
+    train_loader = data.DataLoader(train_set, batch_size=4, shuffle=True, drop_last=True)
     test_loader = data.DataLoader(test_set, batch_size=min(32, len(test_set)), shuffle=True)
     avg_loss = None
     min_loss = np.inf
@@ -187,13 +206,20 @@ def train(args):
 
 model = CNNModel().cuda()
 
+def init_model(input_file=None, use_cuda=True):
+    if use_cuda:
+        model.cuda()
+    if input_file:
+        model.load(input_file)
+    model.eval()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=str)
     parser.add_argument("--in_file", type=str, default="")
-    parser.add_argument("--n_epochs", type=int, default=400)
+    parser.add_argument("--n_epochs", type=int, default=1000)
     parser.add_argument("--out_file", type=str, default="output.pt")
-    parser.add_argument("--types", nargs="+", type=str, default=["_none_", "vmult", "vdiv"])
+    parser.add_argument("--types", nargs="+", type=str, default=["_none_", "vmult", "vadd", "vsub"])
     train(parser.parse_known_args()[0])
 
 if __name__ == "__main__":

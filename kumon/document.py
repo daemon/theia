@@ -1,3 +1,6 @@
+import enum
+import random
+
 from PIL import Image, ImageFont, ImageDraw
 from scipy.signal import correlate
 from sklearn.cluster import DBSCAN
@@ -5,12 +8,25 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+import kumon.model as mod
 import mnist
+
+class QuestionEnum(enum.Enum):
+    Q_VDIV = 0
+    Q_VMULT = 1
+    Q_VADD = 2
+    Q_VSUB = 3
+
+    @classmethod
+    def find_label(cls, lbl_int):
+        for q in cls:
+            if q.value == lbl_int:
+                return q
 
 class Document(object):
     def __init__(self, file):
         im = Image.open(file)
-        im.show()
+        im.thumbnail((800, 800))
         self.image_data = self.crop(np.array(im))
         self.items = self.segment(self.image_data)
         self.grade()
@@ -38,162 +54,222 @@ class Document(object):
         image_data = image_data[min_left:min_right, :]
         return image_data
 
-    def split_multiply_bar(self, img, slope_max=0.3):
-        img = cv2.Laplacian(img, cv2.CV_64F)
-        img = cv2.GaussianBlur(img, (3, 3), 0.5)
-        ret, img = cv2.threshold(img, 10, 255, cv2.THRESH_BINARY)
-        img = img.astype(np.uint8)
-        
-        lines = cv2.HoughLinesP(img, 1, 3.1415926 / 180, 5, None, 4)
-        canvas = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+    def _compute_number(self, digits):
+        n = 0
+        if not digits:
+            return np.nan
+        digits = list(sorted(digits, key=lambda x: -x[1]))
+        for i, (digit, _) in enumerate(digits):
+            n += 10**i * digit
+        return n
+
+    def _parse_vx_question(self, mult_height, rect):
+        rect[1] -= (self.paper_height // 15 + mult_height)
+        rect[0] += self.paper_width // 20
+        rect[2] -= self.paper_width // 20
+        rect[3] = self.paper_height // 15
+        question = mnist.fetch_region(self.proc_data, rect)
+        q_rect = rect.copy()
+        q_rect[1] += mult_height + 3
+        digits = self.segment_digits(question, use_image=True)
+        digits1 = []
+        digits2 = []
+        for d in digits:
+            d_rect = d[0]
+            if (d_rect[2] < 6 and d_rect[3] < 6) or d_rect[3] < 8:
+                continue
+            lbl, prob = mnist.model.label(d[1], draw_input=False)
+            if d_rect[1] > rect[3] // 3:
+                digits2.append((lbl, d_rect[0]))
+            else:
+                digits1.append((lbl, d_rect[0]))
+        n1 = self._compute_number(digits1)
+        n2 = self._compute_number(digits2)
+
+        rect[1] += self.paper_height // 30
+        rect[0] -= self.paper_width // 20
+        rect[2] = self.paper_width // 20
+        rect[3] = self.paper_height // 30
+        img = mnist.fetch_region(self.proc_data, rect)
+        lbl, prob = mod.model.label(img)
+        if prob < 0.8:
+            return np.nan, lbl, q_rect
+        lbl = QuestionEnum.find_label(lbl)
+        if lbl == QuestionEnum.Q_VADD:
+            ans = n1 + n2
+        elif lbl == QuestionEnum.Q_VSUB:
+            ans = n1 - n2
+        elif lbl == QuestionEnum.Q_VMULT:
+            ans = n1 * n2
+        else:
+            ans = np.nan
+        return ans, lbl, q_rect
+
+    def _parse_vdiv_question(self, mult_height, rect):
+        if rect[1] - mult_height < 10 or rect[0] > self.paper_width / 4:
+            return
+        x, y, w, h = rect
+        x += self.paper_width // 45
+        y += mult_height + 3
+        h -= mult_height + 3
+        feats = self.segment_digits(self.proc_data[y:y + h, x:x + w], use_image=True)
+        x -= self.paper_width // 45
+        q_rect = x, y - 3, w, h + 3
+        labels = []
+        for feat in feats:
+            lbl, prob = mnist.model.label(feat[1])
+            if prob > 0.4:
+                labels.append((lbl, feat[0][0]))
+        if not labels:
+            return None
+        q_labels = sorted(labels, key=lambda x: x[1], reverse=True)
+        q = 0
+        for i, (lbl, _) in enumerate(q_labels):
+            q += 10**i * lbl
+
+        x -= self.paper_width // 10 + self.paper_width // 90
+        w = self.paper_width // 10
+        feats = self.segment_digits(self.proc_data[y:y + h, x:x + w])
+        labels = []
+        for feat in feats:
+            d_rect = feat[0]
+            if (d_rect[2] < 6 and d_rect[3] < 6) or d_rect[3] < 8:
+                continue
+            lbl, prob = mnist.model.label(feat[1])
+            if prob > 0.4:
+                labels.append((lbl, feat[0][0]))
+        if not labels:
+            return
+        d_labels = sorted(labels, key=lambda x: x[1], reverse=True)
+        d = 0
+        for i, (lbl, _) in enumerate(d_labels):
+            d += 10**i * lbl
+        ans = (q // d, q % d)
+        self.proc_data = mnist.erase_region(self.proc_data, q_rect)
+        return ans, QuestionEnum.Q_VDIV, q_rect
+
+    def parse_question(self, image_feat, slope_max=0.3):
+        rect, ct_img = image_feat
+        if ct_img.shape[1] < self.paper_width / 15:
+            return
+        lines = cv2.HoughLinesP(ct_img, 1, 3.1415926 / 180, 5, None, 4)
+        if lines is None:
+            return
+        canvas = np.zeros((ct_img.shape[0], ct_img.shape[1]), dtype=np.uint8)
+        has_bar = False
         for line in lines:
             x1, y1, x2, y2 = line[0]
+            if self.has_header and rect[1] + y1 < self.paper_height // 5:
+                return
             slope = (y2 - y1) / (x1 - x2 + 1E-6)
             if np.abs(slope) < slope_max:
-                cv2.line(canvas, (x1, y1), (x2, y2), (255,))
-        
+                has_bar = True
+                cv2.line(canvas, (x1, y1), (x2, y2), 255)
+        if not has_bar:
+            return
         output = correlate(canvas, np.ones((2, canvas.shape[1])), mode="valid")
         mult_height = np.argmax(output)
-        top = img[:mult_height - 2, :]
-        bottom = img[mult_height + 3:, :]
-        return top, bottom
 
-    def segment(self, image_data, k_factor=10, pos_threshold=20, rh_threshold=0.035):
-        image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2GRAY)
-        proc_data = cv2.Canny(image_data, 100, 255)
-        self.paper_height, self.paper_width = h, w = proc_data.shape
+        ans = self._parse_vdiv_question(mult_height, rect)
+        if not ans:
+            ans = self._parse_vx_question(mult_height, rect)
+        return ans
 
-        cluster_data = np.stack(np.where(proc_data >= pos_threshold), 1)
-        def cluster_dbscan(cluster_data, eps, core_pts):
-            dbscan = DBSCAN(eps, core_pts).fit(cluster_data)
-            data = {}
-            for l, c in zip(dbscan.labels_, cluster_data):
-                try:
-                    data[l].append(c)
-                except KeyError:
-                    data[l] = [c]
+    def segment_digits(self, image, use_image=False):
+        im2, contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        image_features = []
+        for c in contours:
+            canvas = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+            cv2.drawContours(canvas, c, -1, 255, 1)
+            rx, ry, rw, rh = bounding_rect = cv2.boundingRect(canvas)
+            if rw > 1 and rh > 0:
+                img = image if use_image else canvas
+                image_features.append((list(bounding_rect), img[ry:ry + rh, rx:rx + rw]))
+        return image_features
 
-            n_questions = 0
-            brects = {}
-            for l, cluster in list(data.items()):
-                ry, rx, rh, rw = rect = cv2.boundingRect(np.array(cluster))
-                rh_pct = rh / w
-                if rh_pct < rh_threshold:
-                    n_questions += 1
-                    del data[l]
-                brects[l] = rect
-
-            if n_questions >= len(data.keys()):
-                return data
-
-            distances = {}
-            for l1, cluster1 in data.items():
-                ry1, rx1, rh1, rw1 = brects[l1]
-                p11, p12, p13, p14 = np.array([ry1, rx1]), np.array([ry1 + rh1, rx1]),\
-                    np.array([ry1, rx1 + rw1]), np.array([ry1 + rh1, rx1 + rw1])
-                for l2, cluster2 in data.items():
-                    ry2, rx2, rh2, rw2 = brects[l2]
-                    p2 = np.array([ry2, rx2])
-                    if l1 == l2 or rh2 > rh1:
-                        continue
-                    distances[l1, l2] = min(np.linalg.norm(p2 - p11), np.linalg.norm(p2 - p12),\
-                        np.linalg.norm(p2 - p13), np.linalg.norm(p2 - p14))
-            distances = sorted(list(distances.items()), key=lambda x: x[1])[:len(data.keys()) - n_questions]
-            for (lbl, merge_lbl), dist in distances:
-                if dist > min(self.paper_width, self.paper_height) / 20:
-                    continue
-                data[lbl].extend(data[merge_lbl])
-                del data[merge_lbl]
-            return data
-
-        data1 = cluster_dbscan(cluster_data, h / 35, 5)
-
-        def min_dist(contour1, contour2):
-            min_dist = np.inf
-            for p1 in contour1:
-                for p2 in contour2:
-                    dist = np.linalg.norm(p1[0] - p2[0])
-                    min_dist = dist if dist < min_dist else min_dist
-            return min_dist
-
-        def segment_digits(image):
-            im2, contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            image_features = []
-            for c in contours:
-                canvas = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
-                cv2.drawContours(canvas, c, -1, 255, 1)
-                rx, ry, rw, rh = bounding_rect = cv2.boundingRect(canvas)
-                image_features.append((bounding_rect, image[ry:ry + rh, rx:rx + rw]))
-            return image_features
-
-        items = []
-        for k, v in data1.items():
-            cluster = np.array(v)
-            rx, ry, rw, rh = cv2.boundingRect(cluster)
-            segment = proc_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
-            im_data = image_data.astype(np.uint8)[rx:rx + rw, ry:ry + rh]
-            try:
-                question, answer = self.split_multiply_bar(im_data)
-            except TypeError:
+    def _grade_vx(self, q_rect, rects):
+        x, y, w, h = q_rect
+        y += h
+        x -= self.paper_width // 10
+        h = min(self.paper_height // 15, self.paper_height - h)
+        w = min(self.paper_width // 4, self.paper_width - w)
+        #Image.fromarray(self.proc_data[y:y + h, x:x + w]).show()
+        digits = self.segment_digits(self.proc_data[y:y + h, x:x + w], use_image=True)
+        ans_digits = []
+        for d in digits:
+            d_rect = d[0]
+            if (d_rect[2] < 6 and d_rect[3] < 6) or d_rect[3] < 8:
                 continue
-            question_features, answer_features = segment_digits(question), segment_digits(answer)
-            items.append((question_features, answer_features, (rx, ry, rw, rh)))
-        return items
+            lbl, prob = mnist.model.label(d[1], draw_input=False)
+            if prob < 0.4:
+                continue
+            ans_digits.append((lbl, d_rect[0]))
+        ans = self._compute_number(ans_digits)
+        return ans
+
+    def _grade_vdiv(self, q_rect, rects):
+        a_rects = list(reversed(mnist.find_first_xline_above(q_rect, rects)))
+        ans_q = np.inf if len(a_rects) == 0 else 0
+        ans_r = np.inf if len(a_rects) == 0 else 0
+        is_remainder = True
+        i = 0
+        for rect in a_rects:
+            x, y, w, h = rect
+            lbl, prob = mnist.model.label(self.proc_data[y - 4:y + h, x:x + w], draw_input=False)
+            if lbl == 10:
+                is_remainder = False
+                i = 0
+                continue
+            if is_remainder:
+                ans_r += 10**i * lbl
+            else:
+                ans_q += 10**i * lbl
+            i += 1
+        return (ans_q, ans_r)
+
+    def segment(self, image_data):
+        image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2GRAY)
+        proc_data = image_data.astype(np.uint8)
+        proc_data = cv2.GaussianBlur(proc_data, (9, 9), 0.7)
+        proc_data = cv2.adaptiveThreshold(proc_data, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 5)
+        self.paper_height, self.paper_width = h, w = proc_data.shape
+        self.proc_data = proc_data.astype(np.uint8)
+        header_mean = np.mean(self.proc_data[:self.paper_height // 5] > 0)
+        self.has_header = header_mean > 0.03
+        
+        feats = self.segment_digits(proc_data.astype(np.uint8))
+        questions = []
+        for i, feat in enumerate(feats):
+            q_data = self.parse_question(feat)
+            if q_data:
+                questions.append(q_data)
+        feats = self.segment_digits(self.proc_data)
+        rects = [f[0] for f in feats]
+        answers = []
+        for ans, q_type, q_rect in questions:
+            if q_type == QuestionEnum.Q_VDIV:
+                answer = self._grade_vdiv(q_rect, rects)
+            else:
+                answer = self._grade_vx(q_rect, rects)
+            answers.append(answer)
+        return questions, answers
 
     def grade(self):
         accuracy = []
         font = ImageFont.truetype("DejaVuSans.ttf", self.paper_width // 20)
         image = Image.fromarray(self.image_data.copy())
+        Image.fromarray(self.proc_data).show()
         graphics = ImageDraw.Draw(image)
-        for i, (question_features, answer_features, rect) in enumerate(self.items):
-            areas = []
-            labels = []
-            digit_order = []
-            for bounding_rect, digit in answer_features:
-                digit_order.append(bounding_rect[0])
-                areas.append(np.prod(digit.shape))
-                labels.append(mnist.model.label(digit, draw_input=False)[0])
-            labels = np.array(labels)
-            digit_order = np.array(digit_order)
-            area_order = np.argsort(areas)[-3:]
-            
-            digits = labels[area_order]
-            digit_order = digit_order[area_order]
-            digits = digits[np.argsort(digit_order)]
-            try:
-                answer = np.sum(np.power(10, np.arange(3)[::-1]) * digits)
-            except ValueError:
-                answer = None
-
-            areas = []
-            labels = []
-            digit_order = []
-            for bounding_rect, digit in question_features:
-                lbl, prob = mnist.model.label(digit, draw_input=False)
-                if prob < 0.85:
-                    continue
-                rx, ry, rw, rh = bounding_rect
-                digit_order.append((rx + rw) * (ry + rh))
-                areas.append(np.prod(digit.shape))
-                labels.append(lbl)
-            labels = np.array(labels)
-            digit_order = np.array(digit_order)
-            area_order = np.argsort(areas)[-3:]
-
-            digits = labels[area_order]
-            digit_order = digit_order[area_order]
-            digits = digits[np.argsort(digit_order)]
-            try:
-                true_answer = (10 * digits[0] + digits[1]) * digits[2]
-            except IndexError:
+        questions, answers = self.items
+        for i, (q, a) in enumerate(zip(questions, answers)):
+            if np.isnan(q[0]) or np.isnan(a):
                 continue
-
-            is_correct = true_answer == answer
+            print(q[0], a)
+            rect = q[2]
+            is_correct = a == q[0]
             checkmark = "✓" if is_correct else "✗"
             fill = (100, 220, 20) if is_correct else (255, 0, 0)
-            print("{} × {} = {} {}".format(10 * digits[0] + digits[1], digits[2], answer, checkmark))
-
-            graphics.text((rect[1] - self.paper_width / 30, rect[0]), checkmark, font=font, fill=fill)
+            graphics.text((rect[0] - self.paper_width / 10, rect[1] - self.paper_width / 30), checkmark, font=font, fill=fill)
             accuracy.append(int(is_correct))
 
         grade = 100 * np.sum(accuracy) / len(accuracy)

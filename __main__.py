@@ -2,6 +2,7 @@ from collections import ChainMap
 import argparse
 
 import kumon.document as doc
+import kumon.model as mod
 import mnist
 
 class ConfigBuilder(object):
@@ -29,14 +30,15 @@ class ConfigBuilder(object):
         return ChainMap(args, self.default_config)
 
 def main():
-    global_conf = dict(no_cuda=False, input_file="output.pt")
+    global_conf = dict(no_cuda=False, mnist_model="mnist.pt", kumon_model="kumon.pt")
     builder = ConfigBuilder(global_conf)
     parser = builder.build_argparse()
     parser.add_argument("--input", type=str)
     parser.add_argument("--type", type=str, choices=["kumon"], default="kumon")
     config = builder.config_from_argparse(parser)
 
-    mnist.init_model(config["input_file"], not config["no_cuda"])
+    mnist.init_model(config["mnist_model"], not config["no_cuda"])
+    mod.init_model(config["kumon_model"], not config["no_cuda"])
     document = doc.Document(config["input"])
 
 if __name__ == "__main__":

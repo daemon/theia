@@ -12,6 +12,100 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data as data
 
+def iou(rect1, rect2):
+    ix1 = max([rect1[0], rect2[0]])
+    iy1 = max([rect1[1], rect2[1]])
+    ix2 = min([rect1[0] + rect1[2], rect2[0] + rect2[2]])
+    iy2 = min([rect1[1] + rect1[3], rect2[1] + rect2[3]])
+    if iy1 >= iy2 or ix1 >= ix2:
+        i = 0
+    else:
+        i = (ix2 - ix1) * (iy2 - iy1)
+    u = rect1[2] * rect1[3] + rect2[2] * rect2[3] - i + 1E-6
+    return i / u
+
+def find_xline(init_rect, rects, x_thresh=16, y_thresh=25, visited_set=set(), size_fac=0.6, max_depth=4):
+    curr_rects = [init_rect]
+    if max_depth == 0:
+        return curr_rects
+    x1, y1, w1, h1 = init_rect
+    min_rect = None
+    min_dist = np.inf
+    for i, rect in enumerate(rects):
+        if i in visited_set:
+            continue
+        x2, y2, w2, h2 = rect
+        if x1 + w1 + x_thresh < x2 or abs(y2 - y1) > y_thresh or x2 <= x1:
+            continue
+        if w2 < size_fac * w1 and h2 < size_fac * h1:
+            continue
+        dist = (x1 + w1 - x2)**2 + 0.1 * (y2 - y1)**2
+        if dist < min_dist:
+            min_dist = dist
+            min_rect = i, rect
+    if not min_rect:
+        return curr_rects
+    i, rect = min_rect
+    visited_set.add(i)
+    curr_rects.extend(find_xline(rect, rects, x_thresh, y_thresh, visited_set, max_depth=max_depth - 1))
+    return curr_rects
+
+def find_first_xline_above(base_rect, rects, max_depth=3, x_thresh=16, y_thresh=25):
+    min_dist = np.inf
+    x0, y0, w0, h0 = base_rect
+    x0 += w0 / 2
+    for rect in rects:
+        x, y, w, h = rect
+        if y > y0 or x < x0 - w0 / 2:
+            continue
+        dist = (x - x0)**2 + (y - (y0 + h))**2
+        if dist < min_dist:
+            min_dist = dist
+            min_rect = rect
+    return find_xline(min_rect, rects, max_depth=max_depth, x_thresh=x_thresh, y_thresh=y_thresh)
+
+def find_first_xline_below(base_rect, rects, max_depth=3, x_thresh=16, y_thresh=25):
+    min_dist = np.inf
+    x0, y0, w0, h0 = base_rect
+    for rect in rects:
+        x, y, w, h = rect
+        if y < y0 + h0 or x < x0 - w0 / 2:
+            continue
+        dist = (x - x0)**2 + (y - (y0 + h0))**2
+        if dist < min_dist:
+            min_dist = dist
+            min_rect = rect
+    return find_xline(min_rect, rects, max_depth=max_depth, x_thresh=x_thresh, y_thresh=y_thresh)
+
+def fetch_region(image, rect):
+    x, y, w, h = rect
+    return image[y:y + h, x:x + w]
+
+def erase_region(image, rect):
+    x, y, w, h = rect
+    image[y:y + h, x:x + w] = 0
+    return image
+
+def nms(features, rect_key=None, score_key=None):
+    del_set = set()
+    for i, f1 in enumerate(features):
+        rect1 = rect_key(f1)
+        prob1 = score_key(f1)
+        for j in range(i + 1, len(features)):
+            f2 = features[j]
+            rect2 = rect_key(f2)
+            prob2 = score_key(f2)
+            if iou(rect1, rect2) < 0.5:
+                continue
+            if prob2 < prob1:
+                del_set.add(j)
+            else:
+                del_set.add(i)
+    del_list = sorted(list(del_set), reverse=True)
+    for i in del_list:
+        del features[i]
+    return features
+
 class SerializableModule(nn.Module):
     def __init__(self):
         super().__init__()
@@ -33,19 +127,41 @@ def read_idx(bytes):
     buf = reader.read(size)
     return np.frombuffer(buf, dtype=np.uint8).reshape(sizes)
 
+def pad_square(image, std_pad=0):
+    pad_w = max(image.shape[1] - image.shape[0], 0)
+    pad_w1 = pad_w // 2 + std_pad
+    pad_w2 = pad_w // 2 + pad_w % 2 + std_pad
+    pad_h = max(image.shape[0] - image.shape[1], 0)
+    pad_h1 = pad_h // 2 + std_pad
+    pad_h2 = pad_h // 2 + pad_h % 2 + std_pad
+    return np.pad(image, ((pad_w1, pad_w2), (pad_h1, pad_h2)), "constant")
+
 class MnistDataset(data.Dataset):
     def __init__(self, images, labels, is_training):
-        self.images = []
-        for image in images:
-            self.images.append(Image.fromarray(image))
-        self.labels = labels
+        self.clean_images = []
+        self.clean_labels = []
+        self.unk_images = []
+        self.unk_labels = []
+        for image, label in zip(images, labels):
+            is_clean = label <= 9 or label == 27
+            image = np.transpose(image)
+            if not is_clean:
+                label = 11
+            if label == 27:
+                label = 10
+            if is_clean:
+                self.clean_images.append(Image.fromarray(image))
+                self.clean_labels.append(int(label))
+            else:
+                self.unk_images.append(Image.fromarray(image))
+                self.unk_labels.append(int(label))
         self.is_training = is_training
 
     @classmethod
     def splits(cls, config):
         data_dir = config.dir
-        img_files = [os.path.join(data_dir, "train-images-idx3-ubyte"),
-            os.path.join(data_dir, "t10k-images-idx3-ubyte")]
+        img_files = [os.path.join(data_dir, "emnist-balanced-train-images-idx3-ubyte"),
+            os.path.join(data_dir, "emnist-balanced-test-images-idx3-ubyte")]
         image_sets = []
         for image_set in img_files:
             with open(image_set, "rb") as f:
@@ -53,8 +169,8 @@ class MnistDataset(data.Dataset):
             arr = read_idx(content)
             image_sets.append(arr)
 
-        lbl_files = [os.path.join(data_dir, "train-labels-idx1-ubyte"),
-            os.path.join(data_dir, "t10k-labels-idx1-ubyte")]
+        lbl_files = [os.path.join(data_dir, "emnist-balanced-train-labels-idx1-ubyte"),
+            os.path.join(data_dir, "emnist-balanced-test-labels-idx1-ubyte")]
         lbl_sets = []
         for lbl_set in lbl_files:
             with open(lbl_set, "rb") as f:
@@ -63,11 +179,25 @@ class MnistDataset(data.Dataset):
         return cls(image_sets[0], lbl_sets[0], True), cls(image_sets[1], lbl_sets[1], False)
 
     def __getitem__(self, index):
-        lbl = self.labels[index]
-        img = self.images[index]
+        if index < len(self.clean_labels):
+            lbl = self.clean_labels[index]
+            img = self.clean_images[index]
+        else:
+            index = random.randint(0, len(self.unk_labels) - 1)
+            lbl = self.unk_labels[index]
+            img = self.unk_images[index]
         if random.random() < 0.5 and self.is_training:
             img = img.rotate(random.randint(-15, 15))
             arr = np.array(img)
+            if lbl == 8:
+                arr[:random.randint(0, 10)] = 0
+            if lbl == 10:
+                if random.random() < 0.75:
+                    a = -random.randint(1, 10)
+                    b = max(28 - random.randint(1, 10), a)
+                    c = random.randint(1, 10)
+                    d = min(random.randint(1, 10), b)
+                    arr[a:b, c:28 - d] = 255
             if random.random() < 0.5:
                 resized = int(28 * (random.random() * 0.7 + 0.3))
                 pad_w1 = random.randint(0, 28 - resized)
@@ -95,30 +225,22 @@ class MnistDataset(data.Dataset):
             return torch.from_numpy(arr.astype(np.float32)), lbl
 
     def __len__(self):
-        return len(self.images)
+        return len(self.clean_images)
 
 class ConvModel(SerializableModule):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 48, 5)
-        self.bn1 = nn.BatchNorm2d(48, affine=False)
-        self.conv2 = nn.Conv2d(48, 64, 5)
-        self.bn2 = nn.BatchNorm2d(64, affine=False)
+        self.conv1 = nn.Conv2d(1, 64, 5)
+        self.bn1 = nn.BatchNorm2d(64, affine=False)
+        self.conv2 = nn.Conv2d(64, 96, 5)
+        self.bn2 = nn.BatchNorm2d(96, affine=False)
         self.pool = nn.MaxPool2d(2)
         self.dropout = nn.Dropout(0.6)
-        self.fc1 = nn.Linear(1024, 1024)
-        self.fc2 = nn.Linear(1024, 10)
+        self.fc1 = nn.Linear(16 * 96, 1024)
+        self.fc2 = nn.Linear(1024, 11)
 
     def label(self, digit, draw_input=False):
-        pad_w = max(digit.shape[1] - digit.shape[0], 0)
-        std_pad = 5
-        pad_w1 = pad_w // 2 + std_pad
-        pad_w2 = pad_w // 2 + pad_w % 2 + std_pad
-        pad_h = max(digit.shape[0] - digit.shape[1], 0)
-        pad_h1 = pad_h // 2 + std_pad
-        pad_h2 = pad_h // 2 + pad_h % 2 + std_pad
-
-        digit = Image.fromarray(np.pad(digit, ((pad_w1, pad_w2), (pad_h1, pad_h2)), "constant"))
+        digit = Image.fromarray(pad_square(digit, std_pad=5))
         x = np.array(digit.resize((28, 28), Image.BILINEAR), dtype=np.float32)
         if draw_input:
             Image.fromarray(x).show()
@@ -144,7 +266,8 @@ def train(args):
     train_loader = data.DataLoader(train_set, batch_size=64, shuffle=True, drop_last=True)
     test_loader = data.DataLoader(test_set, batch_size=min(32, len(test_set)))
 
-    for _ in range(args.n_epochs):
+    for n_epoch in range(args.n_epochs):
+        print("Epoch: {}".format(n_epoch + 1))
         for i, (model_in, labels) in enumerate(train_loader):
             model.train()
             optimizer.zero_grad()
@@ -155,7 +278,7 @@ def train(args):
             loss = criterion(scores, labels)
             loss.backward()
             optimizer.step()
-            if i % 64 == 0:
+            if i % 16 == 0:
                 accuracy = (torch.max(scores, 1)[1].view(model_in.size(0)).data == labels.data).sum() / model_in.size(0)
                 print("train accuracy: {:>10}, loss: {:>25}".format(accuracy, loss.data[0]))
     
@@ -184,7 +307,7 @@ def main():
     parser.add_argument("--dir", type=str)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
     parser.add_argument("--out_file", type=str, default="output.pt")
-    parser.add_argument("--n_epochs", type=int, default=30)
+    parser.add_argument("--n_epochs", type=int, default=40)
     args = parser.parse_args()
     train(args)
 
