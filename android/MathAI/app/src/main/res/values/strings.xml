@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">MathAI</string>
+    <string name="no_assignments">No graded assignments.</string>
+    <string name="assignments">Assignments</string>
+    <string name="base_url">http://rocketeer.net:16889</string>
+    <string name="currently_grading">Grading assignment...</string>
+</resources>

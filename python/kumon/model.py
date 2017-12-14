@@ -49,7 +49,9 @@ class CNNModel(SerializableModule):
         if draw_input:
             Image.fromarray(x).show()
         x = (x - np.mean(x)) / np.sqrt(np.var(x) + 1E-6)
-        x = Variable(torch.from_numpy(x), volatile=True).cuda()
+        x = Variable(torch.from_numpy(x), volatile=True)
+        if self.use_cuda:
+            x = x.cuda()
         x = x.unsqueeze(0)
         ret = F.softmax(self.forward(x)).cpu().data[0].numpy()
         return np.argmax(ret), np.max(ret)
@@ -204,9 +206,10 @@ def train(args):
             accuracy = (torch.max(model_out, 1)[1].data == labels.cuda()).sum() / labels.size(0)
             print("test total loss: {}, accuracy: {}".format(loss.cpu().data[0], accuracy))
 
-model = CNNModel().cuda()
+model = CNNModel()
 
 def init_model(input_file=None, use_cuda=True):
+    model.use_cuda = use_cuda
     if use_cuda:
         model.cuda()
     if input_file:

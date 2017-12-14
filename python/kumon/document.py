@@ -27,9 +27,10 @@ class Document(object):
     def __init__(self, file):
         im = Image.open(file)
         im.thumbnail((800, 800))
+        self.orig_size = im.size
         self.image_data = self.crop(np.array(im))
         self.items = self.segment(self.image_data)
-        self.grade()
+        self.mark_dict = self.grade()
 
     def _compute_min_frame(self, data, dim=0, dim_out=1, mean_min=100, std_max=100):
         mean_color = np.mean(np.mean(data, 2), dim)
@@ -48,9 +49,9 @@ class Document(object):
         return min_left, min_right
 
     def crop(self, image_data):
-        min_left, min_right = self._compute_min_frame(image_data)
+        self._w_crop = min_left, min_right = self._compute_min_frame(image_data)
         image_data = image_data[:, min_left:min_right]
-        min_left, min_right = self._compute_min_frame(image_data, 1, 0)
+        self._h_crop = min_left, min_right = self._compute_min_frame(image_data, 1, 0)
         image_data = image_data[min_left:min_right, :]
         return image_data
 
@@ -193,7 +194,6 @@ class Document(object):
         x -= self.paper_width // 10
         h = min(self.paper_height // 15, self.paper_height - h)
         w = min(self.paper_width // 4, self.paper_width - w)
-        #Image.fromarray(self.proc_data[y:y + h, x:x + w]).show()
         digits = self.segment_digits(self.proc_data[y:y + h, x:x + w], use_image=True)
         ans_digits = []
         for d in digits:
@@ -255,23 +255,23 @@ class Document(object):
         return questions, answers
 
     def grade(self):
-        accuracy = []
+        marks = []
         font = ImageFont.truetype("DejaVuSans.ttf", self.paper_width // 20)
         image = Image.fromarray(self.image_data.copy())
-        Image.fromarray(self.proc_data).show()
         graphics = ImageDraw.Draw(image)
         questions, answers = self.items
         for i, (q, a) in enumerate(zip(questions, answers)):
             if np.isnan(q[0]) or np.isnan(a):
                 continue
-            print(q[0], a)
             rect = q[2]
-            is_correct = a == q[0]
+            is_correct = bool(a == q[0])
             checkmark = "✓" if is_correct else "✗"
             fill = (100, 220, 20) if is_correct else (255, 0, 0)
-            graphics.text((rect[0] - self.paper_width / 10, rect[1] - self.paper_width / 30), checkmark, font=font, fill=fill)
-            accuracy.append(int(is_correct))
+            checkmark_pt = (rect[0] - self.paper_width / 10, rect[1] - self.paper_width / 30)
+            graphics.text(checkmark_pt, checkmark, font=font, fill=fill)
+            marks.append((is_correct, checkmark_pt))
 
+        accuracy = [int(m[0]) for m in marks]
         grade = 100 * np.sum(accuracy) / len(accuracy)
         base_grade = round(grade)
         if abs(grade - base_grade) > 1E-6:
@@ -279,6 +279,9 @@ class Document(object):
         else:
             grade_str = str(int(round(grade)))
         graphics.text((10, 10), "{}%".format(grade_str), font=font, fill=(255, 0, 0))
-        image.show()
         print("Grade: {}%".format(grade_str))
 
+        w, h = self.orig_size
+        dx, dy = self._w_crop[0], self._h_crop[0]
+        mark_dict = [dict(x=(x + dx) / w, y=(y + dy) / h, is_correct=is_correct) for is_correct, (x, y) in marks]
+        return mark_dict
