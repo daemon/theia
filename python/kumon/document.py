@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 import kumon.model as mod
 import mnist
+import geometry as G
 
 class QuestionEnum(enum.Enum):
     Q_VDIV = 0
@@ -69,7 +70,7 @@ class Document(object):
         rect[0] += self.paper_width // 20
         rect[2] -= self.paper_width // 20
         rect[3] = self.paper_height // 15
-        question = mnist.fetch_region(self.proc_data, rect)
+        question = G.fetch_region(self.proc_data, rect)
         q_rect = rect.copy()
         q_rect[1] += mult_height + 3
         digits = self.segment_digits(question, use_image=True)
@@ -91,7 +92,7 @@ class Document(object):
         rect[0] -= self.paper_width // 20
         rect[2] = self.paper_width // 20
         rect[3] = self.paper_height // 30
-        img = mnist.fetch_region(self.proc_data, rect)
+        img = G.fetch_region(self.proc_data, rect)
         lbl, prob = mod.model.label(img)
         if prob < 0.8:
             return np.nan, lbl, q_rect
@@ -146,7 +147,7 @@ class Document(object):
         for i, (lbl, _) in enumerate(d_labels):
             d += 10**i * lbl
         ans = (q // d, q % d)
-        self.proc_data = mnist.erase_region(self.proc_data, q_rect)
+        self.proc_data = G.erase_region(self.proc_data, q_rect)
         return ans, QuestionEnum.Q_VDIV, q_rect
 
     def parse_question(self, image_feat, slope_max=0.3):
@@ -208,7 +209,7 @@ class Document(object):
         return ans
 
     def _grade_vdiv(self, q_rect, rects):
-        a_rects = list(reversed(mnist.find_first_xline_above(q_rect, rects)))
+        a_rects = list(reversed(G.find_first_xline_above(q_rect, rects)))
         ans_q = np.inf if len(a_rects) == 0 else 0
         ans_r = np.inf if len(a_rects) == 0 else 0
         is_remainder = True

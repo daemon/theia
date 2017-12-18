@@ -14,7 +14,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from mnist import SerializableModule, pad_square
+from mnist import SerializableModule
+from geometry import pad_square
 
 def iou(rect1, rect2):
     ix1 = torch.max([rect1[0], rect2[0]])
