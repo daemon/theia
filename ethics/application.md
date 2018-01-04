@@ -41,7 +41,8 @@ We expect to involve 50 participants.
 Provide a copy of any materials to be used for recruitment (e.g. posters(s), flyers, cards, advertisement(s), letter(s), telephone, email, and other verbal scripts).***
 
 We will coordinate with the owner of a local Kumon centre who will help us identify and recruit subjects.
-**TODO**
+
+DRAFTED
 
 ---
 
@@ -53,7 +54,7 @@ They will get to use the mobile application, which saves them time in grading.
 
 Describe the plans for provision of study feedback and attach a copy of the feedback letter to be used.  Wherever possible, written feedback should be provided to study participants including a statement of appreciation, details about the purpose and predictions of the study, restatement of the provisions for confidentiality and security of data, an indication of when a study report will be available and how to obtain a copy, contact information for the researchers, and the ethics review and clearance statement. Refer to the sample feedback letters.
 
-**TODO**
+DRAFTED
 
 ---
 
@@ -87,7 +88,7 @@ Information letter with written consent form; provide a hard copy.
 
 If Yes, provide a copy of the Information Letter and Permission Form to be used to obtain permission from those with legal authority to give it. 
 
-**TODO**
+DRAFTED
 
 ---
 
