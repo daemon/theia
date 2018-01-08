@@ -1,4 +1,58 @@
+from PIL import Image
 import numpy as np
+
+class RectScaler(object):
+    def __init__(self, rect):
+        self.rect = rect
+
+    @classmethod
+    def from_absolute(cls, rect):
+        return cls(rect)
+
+    @classmethod
+    def from_relative(cls, rect, anchor_rect):
+        if scale_h is None:
+            scale_h = scale_w
+        x, y, w, h = rect
+        x_a, y_a, w_a, h_a = anchor_rect
+        x = (x * w_a) + x_a
+        y = (y * h_a) + y_a
+        w = np.exp(w) * w_a
+        h = np.exp(h) * h_a
+        x -= w // 2
+        y -= h // 2
+        return cls([x, y, w, h])
+
+    def to_absolute(self):
+        return self.rect
+
+    def to_relative(self, anchor_rect):
+        x, y, w, h = self.rect
+        x += w // 2
+        y += h // 2
+        x_a, y_a, w_a, h_a = anchor_rect
+        x = (x - x_a) / w_a
+        y = (y - y_a) / h_a
+        w = np.log(w / w_a)
+        h = np.log(h / h_a)
+        return [x, y, w, h]
+
+def fit_resize(image, length, dim=1):
+    w, h = image.size
+    aspect_ratio = h / w
+    size = [int(length / aspect_ratio), int(length * aspect_ratio)]
+    size[dim] = length
+    return image.resize(size, Image.BILINEAR)
+
+def within_bounds(rect, outside_rect):
+    return rect[0] >= outside_rect[0] and rect[1] >= outside_rect[1] and\
+        rect[0] + rect[2] <= outside_rect[0] + outside_rect[2] and\
+        rect[1] + rect[3] <= outside_rect[1] + outside_rect[3]
+
+def pad(image, pad_len_width, pad_len_height=None):
+    if pad_len_height is None:
+        pad_len_height = pad_len_width
+    return np.pad(image, ((pad_len_height, pad_len_height), (pad_len_width, pad_len_width)), "constant")
 
 def pad_square(image, std_pad=0):
     pad_w = max(image.shape[1] - image.shape[0], 0)
@@ -10,10 +64,10 @@ def pad_square(image, std_pad=0):
     return np.pad(image, ((pad_w1, pad_w2), (pad_h1, pad_h2)), "constant")
 
 def iou(rect1, rect2):
-    ix1 = max([rect1[0], rect2[0]])
-    iy1 = max([rect1[1], rect2[1]])
-    ix2 = min([rect1[0] + rect1[2], rect2[0] + rect2[2]])
-    iy2 = min([rect1[1] + rect1[3], rect2[1] + rect2[3]])
+    ix1 = max(rect1[0], rect2[0])
+    iy1 = max(rect1[1], rect2[1])
+    ix2 = min(rect1[0] + rect1[2], rect2[0] + rect2[2])
+    iy2 = min(rect1[1] + rect1[3], rect2[1] + rect2[3])
     if iy1 >= iy2 or ix1 >= ix2:
         i = 0
     else:

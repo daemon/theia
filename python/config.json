@@ -1,0 +1,8 @@
+{
+    "db_config": {
+        "database": "alpha",
+        "user": "alpha",
+        "password": "$test123",
+        "host": "127.0.0.1"
+    }
+}

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<android.support.v7.widget.LinearLayoutCompat
+    android:orientation="vertical"
+    android:id="@+id/loginRoot"
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:layout_alignParentTop="true"
+        android:id="@+id/loginArt"
+        android:layout_width="match_parent"
+        android:scaleType="centerCrop"
+        android:adjustViewBounds="true"
+        android:layout_height="150dp"
+        android:src="@drawable/mathai_login_art"/>
+
+    <android.support.design.widget.TabLayout
+        android:id="@+id/authTabLayout"
+        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_alignParentTop="true"
+        style="@style/GreenLeafTabLayout">
+        <android.support.design.widget.TabItem
+            android:text="@string/register"
+            style="@style/GreenLeafTabLayout"/>
+        <android.support.design.widget.TabItem
+            android:text="@string/login"
+            style="@style/GreenLeafTabLayout"/>
+    </android.support.design.widget.TabLayout>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/loginForm"
+        android:padding="10dp">
+        <EditText
+            android:id="@+id/editEmail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:hint="@string/email"
+            android:ems="10"
+            android:inputType="textEmailAddress" />
+
+        <EditText
+            android:id="@+id/editPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/password"
+            android:layout_below="@id/editEmail"
+            android:ems="10"
+            android:inputType="textPassword" />
+
+        <EditText
+            android:id="@+id/editPasswordConfirm"
+            android:layout_width="match_parent"
+            android:hint="@string/password_confirm"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/editPassword"
+            android:ems="10"
+            android:inputType="textPassword" />
+
+        <Button
+            android:id="@+id/submitButton"
+            android:enabled="false"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:theme="@style/GreenLeafButton"
+            android:text="@string/submit"
+            android:textColor="@android:color/white"
+            style="@style/Widget.AppCompat.Button.Colored"/>
+    </RelativeLayout>
+</android.support.v7.widget.LinearLayoutCompat>

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#3fb57e</color>
-    <color name="colorPrimaryDark">#309f62</color>
+    <color name="colorPrimaryDark">#309f69</color>
+    <color name="colorPrimary">@color/greenleafActive</color>
     <color name="colorAccent">#ffcc40</color>
+    <color name="lightGrey">#ddd</color>
+    <color name="greenleafActive">#1aca81</color>
+    <color name="greenleafStrong">#c4d227</color>
+    <color name="greenleafError">#df2e2e</color>
+    <color name="greenleafTooltip">#7232d2</color>
 </resources>

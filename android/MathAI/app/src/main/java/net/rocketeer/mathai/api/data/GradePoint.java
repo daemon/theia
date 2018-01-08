@@ -1,4 +1,4 @@
-package net.rocketeer.mathai.api;
+package net.rocketeer.mathai.api.data;
 
 public class GradePoint {
   private double x;

@@ -10,15 +10,11 @@ import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.widget.ImageView;
 
-import net.rocketeer.mathai.api.GradePoint;
-import net.rocketeer.mathai.api.GradeResponse;
-import net.rocketeer.mathai.api.GradingClient;
-
-import rx.android.schedulers.AndroidSchedulers;
-import rx.schedulers.Schedulers;
+import net.rocketeer.mathai.api.data.GradePoint;
+import net.rocketeer.mathai.api.net.GradeResponse;
+import net.rocketeer.mathai.api.ApiClient;
 
 public class GradeActivity extends AppCompatActivity {
   private ProgressDialog mDialog;
@@ -45,12 +41,10 @@ public class GradeActivity extends AppCompatActivity {
     initDialog();
     mImageView = findViewById(R.id.grade_image);
 
-    GradingClient client = new GradingClient(this);
-    client.fetchGradedAssignment(mImagePath)
-        .subscribeOn(Schedulers.io())
-        .observeOn(AndroidSchedulers.mainThread())
+    ApiClient client = new ApiClient(this);
+    client.fetchGradedImage(mImagePath, 0)
         .subscribe(this::onResponse, e -> {
-          Log.d("math", e.getMessage());
+          // Error
         });
   }
 

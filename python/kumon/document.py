@@ -25,13 +25,16 @@ class QuestionEnum(enum.Enum):
                 return q
 
 class Document(object):
-    def __init__(self, file):
+    def __init__(self, file, debug=False):
         im = Image.open(file)
         im.thumbnail((800, 800))
+        self.debug = debug
         self.orig_size = im.size
-        self.image_data = self.crop(np.array(im))
-        self.items = self.segment(self.image_data)
-        self.mark_dict = self.grade()
+        try:
+            self.image_data = self.crop(np.array(im))
+            self.items = self.segment(self.image_data)
+        except ValueError:
+            pass
 
     def _compute_min_frame(self, data, dim=0, dim_out=1, mean_min=100, std_max=100):
         mean_color = np.mean(np.mean(data, 2), dim)
@@ -231,10 +234,14 @@ class Document(object):
     def segment(self, image_data):
         image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2GRAY)
         proc_data = image_data.astype(np.uint8)
-        proc_data = cv2.GaussianBlur(proc_data, (9, 9), 0.7)
+        proc_data = cv2.GaussianBlur(proc_data, (3, 3), 0)
         proc_data = cv2.adaptiveThreshold(proc_data, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 5)
+        kernel = np.ones((5, 5), dtype=np.uint8)
+        test = cv2.morphologyEx(proc_data, cv2.MORPH_CLOSE, kernel)
+        #Image.fromarray(test).show()
         self.paper_height, self.paper_width = h, w = proc_data.shape
         self.proc_data = proc_data.astype(np.uint8)
+        #Image.fromarray(self.proc_data).show()
         header_mean = np.mean(self.proc_data[:self.paper_height // 5] > 0)
         self.has_header = header_mean > 0.03
         
@@ -266,6 +273,7 @@ class Document(object):
                 continue
             rect = q[2]
             is_correct = bool(a == q[0])
+            print(a, q[0])
             checkmark = "✓" if is_correct else "✗"
             fill = (100, 220, 20) if is_correct else (255, 0, 0)
             checkmark_pt = (rect[0] - self.paper_width / 10, rect[1] - self.paper_width / 30)
@@ -274,15 +282,20 @@ class Document(object):
 
         accuracy = [int(m[0]) for m in marks]
         grade = 100 * np.sum(accuracy) / len(accuracy)
+        score = grade
         base_grade = round(grade)
+        if np.isnan(score):
+            score = 0
+            return []
         if abs(grade - base_grade) > 1E-6:
             grade_str = str(round(grade, 1))
         else:
             grade_str = str(int(round(grade)))
         graphics.text((10, 10), "{}%".format(grade_str), font=font, fill=(255, 0, 0))
         print("Grade: {}%".format(grade_str))
+        #image.show()
 
         w, h = self.orig_size
         dx, dy = self._w_crop[0], self._h_crop[0]
         mark_dict = [dict(x=(x + dx) / w, y=(y + dy) / h, is_correct=is_correct) for is_correct, (x, y) in marks]
-        return mark_dict
+        return mark_dict, score

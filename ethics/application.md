@@ -60,13 +60,13 @@ DRAFTED
 
 ***1. Identify and describe any known or anticipated direct benefits to the participants from their involvement in the project.  Often there are no direct benefits to participants.  Experiencing an interview, for example, is not a benefit.  Remuneration is not a benefit.***
 
-Participants will receive a graded copy of submitted assignments.
+Participants will receive access to the automated grading application.
 
 ---
 
 ***2.Identify and describe any known or anticipated benefits to the scientific community/society from the conduct of this study***
 
-Our study will produce an open dataset of children's handwritten digits.
+Our study will produce both an automated grading application and an open dataset of children's handwritten digits.
 
 ---
 

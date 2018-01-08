@@ -2,6 +2,23 @@
     <string name="app_name">MathAI</string>
     <string name="no_assignments">No graded assignments.</string>
     <string name="assignments">Assignments</string>
-    <string name="base_url">http://rocketeer.net:16889</string>
+    <string name="base_url">http://rocketeer.net:16666</string>
     <string name="currently_grading">Grading assignment...</string>
+    <string name="submit">Submit</string>
+    <string name="email">E-mail address</string>
+    <string name="password">Password</string>
+    <string name="password_confirm">Confirm password...</string>
+    <string name="pass_req_tip">Password must be at least 8 characters long.</string>
+    <string name="login">Login</string>
+    <string name="register">Register</string>
+    <string name="pass_conf_tip">Passwords don\'t match!</string>
+    <string name="submitting">Submitting...</string>
+    <string name="error">Error</string>
+    <string name="email_taken">That e-mail has already been taken.</string>
+    <string name="wrong_password">Incorrect e-mail and password combination.</string>
+    <string name="no_connection">No internet connection available.</string>
+    <string name="assignment">Assignment</string>
+    <string name="profiles">Profiles</string>
+    <string name="new_profile">New profile</string>
+    <string name="profile_name">Profile name</string>
 </resources>

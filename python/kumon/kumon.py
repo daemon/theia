@@ -8,9 +8,11 @@ import matplotlib.pyplot as plt
 import mnist
 
 class Document(object):
-    def __init__(self, file):
+    def __init__(self, file, debug=False):
+        self.debug = debug
         im = Image.open(file)
-        im.show()
+        if debug:
+            im.show()
         self.image_data = self.crop(np.array(im))
         self.items = self.segment(self.image_data)
         self.grade()
@@ -203,6 +205,7 @@ class Document(object):
         else:
             grade_str = str(int(round(grade)))
         graphics.text((10, 10), "{}%".format(grade_str), font=font, fill=(255, 0, 0))
-        image.show()
-        print("Grade: {}%".format(grade_str))
+        if self.debug:
+            image.show()
+            print("Grade: {}%".format(grade_str))
 
