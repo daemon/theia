@@ -34,7 +34,8 @@
         <activity android:name=".GradeActivity"/>
         <activity android:name=".MainActivity"/>
         <activity android:name=".DetailsActivity"/>
-        <activity android:name=".AssignmentActivity" />
+        <activity android:name=".AssignmentActivity"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

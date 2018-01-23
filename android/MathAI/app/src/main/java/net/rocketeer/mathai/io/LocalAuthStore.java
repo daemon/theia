@@ -68,6 +68,13 @@ public class LocalAuthStore {
     mPrefs.edit().putString("profiles", gson.toJson(profileArr)).apply();
   }
 
+  public Profile currentProfile() {
+    for (Profile profile : profiles())
+      if (profile.id == currentProfileId())
+        return profile;
+    return null;
+  }
+
   public int currentProfileId() {
     return mPrefs.getInt("profileid", -1);
   }

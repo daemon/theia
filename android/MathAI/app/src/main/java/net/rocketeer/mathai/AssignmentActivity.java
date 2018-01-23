@@ -2,9 +2,11 @@ package net.rocketeer.mathai;
 
 import android.app.ProgressDialog;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
+import android.text.InputType;
 import android.view.View;
 import android.widget.GridView;
 
@@ -14,9 +16,11 @@ import net.rocketeer.mathai.api.net.GradeResponse;
 import net.rocketeer.mathai.io.LocalAuthStore;
 import net.rocketeer.mathai.io.assignment.AssignmentMetadata;
 import net.rocketeer.mathai.io.assignment.AssignmentWriter;
+import net.rocketeer.mathai.utils.ImageUtils;
 import net.rocketeer.mathai.widget.GalleryItem;
 import net.rocketeer.mathai.widget.GalleryViewAdapter;
 import net.rocketeer.mathai.io.SingleShotImageAction;
+import net.rocketeer.mathai.widget.InputTextDialog;
 import net.rocketeer.mathai.widget.OKDialogEnum;
 
 import java.io.IOException;
@@ -32,17 +36,39 @@ public class AssignmentActivity extends AppCompatActivity {
   private GridView mGalleryView;
   private ApiClient mClient;
   private LocalAuthStore mAuthStore;
+  private long mDurationSeconds;
+  private String mPhotoFilePath;
 
   @Override
   protected void onActivityResult(int reqCode, int resCode, Intent bundle) {
     if (resCode != RESULT_OK)
       return;
-    mAdapter.items().add(mAdapter.items().size() - 1, GalleryItem.makeImage(mAction.photoFile().getAbsolutePath()));
+    ImageUtils.thumbnail(mAction.photoFile().getAbsolutePath(), 800);
+    mAdapter.items().add(mAdapter.items().size() - 1, GalleryItem.makeImage(mPhotoFilePath));
     mGalleryView.setAdapter(mAdapter);
     mGalleryView.invalidateViews();
   }
 
-  private void onGrade(View view) {
+  @Override
+  public void onConfigurationChanged(Configuration newConfig) {
+    super.onConfigurationChanged(newConfig);
+  }
+
+  @Override
+  public void onSaveInstanceState(Bundle state) {
+    super.onSaveInstanceState(state);
+    if (mPhotoFilePath != null)
+      state.putString("photoFile", mPhotoFilePath);
+  }
+
+  @Override
+  public void onRestoreInstanceState(Bundle state) {
+    super.onRestoreInstanceState(state);
+    if (state.containsKey("photoFile"))
+      mPhotoFilePath = state.getString("photoFile");
+  }
+
+  private void onGrade() {
     ProgressDialog dialog = new ProgressDialog(this);
     dialog.setCancelable(false);
     dialog.setMessage(getString(R.string.currently_grading));
@@ -50,6 +76,7 @@ public class AssignmentActivity extends AppCompatActivity {
     List<GradeResponse> responses = new ArrayList<>();
     List<String> paths = new ArrayList<>();
     List<String> gradeTokens = new LinkedList<>();
+    long durationMs = mDurationSeconds;
     int profileId = mAuthStore.currentProfileId();
     for (GalleryItem item : mAdapter.items())
       if (!item.isDummy())
@@ -66,7 +93,8 @@ public class AssignmentActivity extends AppCompatActivity {
         Collections.sort(responses, ((r1, r2) -> r1.tag() - r2.tag()));
         for (GradeResponse r : responses)
           gradeTokens.add(r.token());
-        mClient.submitAssignment(new AssignmentSubmitRequest(gradeTokens, mAuthStore.token(), mAuthStore.currentProfileId())).subscribe(response2 -> {
+        mClient.submitAssignment(new AssignmentSubmitRequest(gradeTokens, mAuthStore.token(),
+            mAuthStore.currentProfileId(), durationMs)).subscribe(response2 -> {
           AssignmentWriter writer = new AssignmentWriter(this, paths, responses, response2);
           AssignmentMetadata metadata;
           try {
@@ -109,12 +137,21 @@ public class AssignmentActivity extends AppCompatActivity {
       if (!gItem.isDummy())
         return;
       mAction = new SingleShotImageAction(this, false);
+      mPhotoFilePath = mAction.photoFile().getAbsolutePath();
       mAction.execute();
     });
     mGalleryView.setAdapter(mAdapter);
 
     mAuthStore = new LocalAuthStore(this);
     FloatingActionButton gradeButton = findViewById(R.id.gradeBtn);
-    gradeButton.setOnClickListener(this::onGrade);
+    gradeButton.setOnClickListener(v -> {
+      InputTextDialog dialog = new InputTextDialog(this, getString(R.string.assignmentTime),
+          getString(R.string.minutes), InputType.TYPE_CLASS_NUMBER);
+      dialog.setSubmitListener(input -> {
+        mDurationSeconds = 60 * Integer.parseInt(input);
+        onGrade();
+      });
+      dialog.show();
+    });
   }
 }

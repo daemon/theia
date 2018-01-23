@@ -1,19 +1,28 @@
 package net.rocketeer.mathai.utils;
 
-import org.bytedeco.javacpp.opencv_core;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.ImageWriter;
 
-import static org.bytedeco.javacpp.opencv_core.*;
-import static org.bytedeco.javacpp.opencv_imgcodecs.*;
-import static org.bytedeco.javacpp.opencv_imgproc.CV_INTER_LINEAR;
-import static org.bytedeco.javacpp.opencv_imgproc.cvResize;
+import java.io.FileOutputStream;
 
 public class ImageUtils {
-  public static opencv_core.IplImage thumbnail(String photoPath, int tHeight) {
-    opencv_core.IplImage image = cvLoadImage(photoPath);
-    int tWidth = (int) (image.width() * ((float) tHeight) / image.height());
-    opencv_core.IplImage dest = cvCreateImage(cvSize(tWidth, tHeight), image.depth(), image.nChannels());
-    cvResize(image, dest, CV_INTER_LINEAR);
-    cvSaveImage(photoPath, dest);
-    return dest;
+  public static Bitmap thumbnail(String photoPath, int tHeight) {
+    BitmapFactory.Options options = new BitmapFactory.Options();
+    options.inJustDecodeBounds = false;
+    options.inPreferredConfig = Bitmap.Config.RGB_565;
+    options.inDither = true;
+    Bitmap bMap = BitmapFactory.decodeFile(photoPath, options);
+    int tWidth = (int) (bMap.getWidth() * ((float) tHeight) / bMap.getHeight());
+    bMap = Bitmap.createScaledBitmap(bMap, tWidth, tHeight, true);
+
+    FileOutputStream stream = null;
+    try {
+      stream = new FileOutputStream(photoPath);
+      bMap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
+    } catch (Exception ignored) {
+      return null;
+    }
+    return bMap;
   }
 }

@@ -21,4 +21,6 @@
     <string name="profiles">Profiles</string>
     <string name="new_profile">New profile</string>
     <string name="profile_name">Profile name</string>
+    <string name="assignmentTime">Assignment duration</string>
+    <string name="minutes">Minutes</string>
 </resources>

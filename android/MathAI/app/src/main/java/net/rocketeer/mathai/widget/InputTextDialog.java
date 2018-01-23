@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.support.constraint.ConstraintLayout;
 import android.support.v7.widget.LinearLayoutCompat;
+import android.text.InputType;
 import android.view.ViewGroup;
 import android.widget.EditText;
 
@@ -18,6 +19,10 @@ public class InputTextDialog {
   private final AlertDialog.Builder mAlert;
 
   public InputTextDialog(Context context, String title, String hint) {
+    this(context, title, hint, InputType.TYPE_CLASS_TEXT);
+  }
+
+  public InputTextDialog(Context context, String title, String hint, int inputType) {
     mAlert = new AlertDialog.Builder(context);
     LinearLayoutCompat layout = new LinearLayoutCompat(context);
     layout.setLayoutParams(new LinearLayoutCompat.LayoutParams(
@@ -27,6 +32,7 @@ public class InputTextDialog {
     layout.setPadding(padPx, padPx, padPx, 0);
     mEditText = new EditText(context);
     mEditText.setHint(hint);
+    mEditText.setInputType(inputType);
     mAlert.setTitle(title);
     layout.addView(mEditText, new LinearLayoutCompat.LayoutParams(LinearLayoutCompat.LayoutParams.MATCH_PARENT,
         LinearLayoutCompat.LayoutParams.WRAP_CONTENT));

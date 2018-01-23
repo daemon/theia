@@ -63,11 +63,11 @@ public class GalleryViewAdapter extends ArrayAdapter<GalleryItem> {
       });
       if (!mCache.containsKey(gItem.photoPath()))
         mCache.put(gItem.photoPath(), ThumbnailUtils.extractThumbnail(BitmapFactory.decodeFile(gItem.photoPath()),
-            metrics.widthPixels / 3 - offset, metrics.heightPixels / 3));
+            metrics.widthPixels / 2 - offset, metrics.heightPixels / 4));
       Bitmap tImage = mCache.get(gItem.photoPath());
       item.setImageBitmap(tImage);
     }
-    item.setLayoutParams(new GridView.LayoutParams(metrics.widthPixels / 3 - offset, metrics.heightPixels / 3));
+    item.setLayoutParams(new GridView.LayoutParams(metrics.widthPixels / 2 - offset, metrics.heightPixels / 4));
     return item;
   }
 }
