@@ -8,6 +8,7 @@ import uuid
 import cherrypy
 import numpy as np
 
+from server.tag import start_tag_server
 import db.base as base
 import db.assignment as asst
 import db.user
@@ -51,7 +52,7 @@ class ConfigBuilder(object):
         args = vars(parser.parse_known_args()[0])
         return ChainMap(args, self.default_config)
 
-class AssignmentEndpoint:
+class AssignmentEndpoint(object):
     exposed = True
     @cherrypy.tools.json_out()
     @json_in
@@ -60,6 +61,7 @@ class AssignmentEndpoint:
         try:
             auth_token = kwargs["auth_token"]
             grade_tokens = kwargs["grade_tokens"]
+            duration_ms = kwargs["duration_ms"]
             profile_id = kwargs["profile_id"]
         except:
             cherrypy.response.status = 400
@@ -68,7 +70,7 @@ class AssignmentEndpoint:
         profile = db.user.Profile.find(id=profile_id)
         if profile.owner_id != user.id:
             raise ValueError
-        a, wksts = asst.create_assignment(profile_id, grade_tokens)
+        a, wksts = asst.create_assignment(profile_id, grade_tokens, duration_ms)
         return dict(id=a.id, worksheet_ids=[w.id for w in wksts])
 
     @cherrypy.tools.json_out()
@@ -174,7 +176,7 @@ class GradeEndpoint(object):
             mark_dict = []
             grade = 0
         token = asst.AssignmentStore.create_token(grade)
-        path = os.path.join(self.save_path, str(uuid.uuid4()))
+        path = "{}.jpg".format(os.path.join(self.save_path, str(uuid.uuid4())))
         asst.WorksheetStore.set_path(token, path)
         asst.WorksheetStore.set_points_json(token, mark_dict)
         with open(path, "wb") as f:
@@ -205,10 +207,13 @@ class SyncAssignmentEndpoint(object):
         except:
             return 403
 
-def start_server(host, port):
+def init_db():
     with open("config.json") as f:
         cfg = json.loads(f.read())["db_config"]
     base.initialize(cfg)
+
+def start_main_server(host, port):
+    init_db()
     cherrypy.server.socket_host = host
     cherrypy.server.socket_port = port
 
@@ -232,13 +237,23 @@ def main():
     builder = ConfigBuilder(global_conf)
     parser = builder.build_argparse()
     parser.add_argument("--type", type=str, choices=["kumon"], default="kumon")
-    parser.add_argument("command", type=str, choices=["start", "debug"])
+    parser.add_argument("command", type=str, choices=["start", "debug", "tag", "add_local"])
     config = builder.config_from_argparse(parser)
 
     mnist.init_model("single", config["mnist_model"], not config["no_cuda"])
     mod.init_model(config["kumon_model"], not config["no_cuda"])
     if config["command"] == "start":
-        start_server(config["host"], config["port"])
+        start_main_server(config["host"], config["port"])
+    if config["command"] == "tag":
+        start_tag_server(config["host"], config["port"])
+    elif config["command"] == "add_local":
+        init_db()
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--image_dir", type=str, default=".")
+        parser.add_argument("--profile_name", type=str)
+        parser.add_argument("--email", type=str)
+        flags, _ = parser.parse_known_args()
+        asst.add_local(flags.image_dir, flags.email, flags.profile_name)
     elif config["command"] == "debug":
         parser = argparse.ArgumentParser()
         parser.add_argument("--image", type=str)
