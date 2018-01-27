@@ -9,7 +9,7 @@
         android:layout_marginLeft="5dp"
         android:layout_marginRight="5dp"
         android:layout_gravity="center_vertical"
-        android:numColumns="3"
+        android:numColumns="2"
         android:stretchMode="columnWidth"
         android:horizontalSpacing="4dp"
         android:verticalSpacing="4dp"

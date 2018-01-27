@@ -12,6 +12,7 @@ from server.tag import start_tag_server
 import db.base as base
 import db.assignment as asst
 import db.user
+import dump
 import kumon.document as doc
 import kumon.model as mod
 import mnist
@@ -237,14 +238,14 @@ def main():
     builder = ConfigBuilder(global_conf)
     parser = builder.build_argparse()
     parser.add_argument("--type", type=str, choices=["kumon"], default="kumon")
-    parser.add_argument("command", type=str, choices=["start", "debug", "tag", "add_local"])
+    parser.add_argument("command", type=str, choices=["start", "debug", "tag", "add_local", "dump_boxes"])
     config = builder.config_from_argparse(parser)
 
     mnist.init_model("single", config["mnist_model"], not config["no_cuda"])
     mod.init_model(config["kumon_model"], not config["no_cuda"])
     if config["command"] == "start":
         start_main_server(config["host"], config["port"])
-    if config["command"] == "tag":
+    elif config["command"] == "tag":
         start_tag_server(config["host"], config["port"])
     elif config["command"] == "add_local":
         init_db()
@@ -259,6 +260,14 @@ def main():
         parser.add_argument("--image", type=str)
         flags, _ = parser.parse_known_args()
         debug_image(flags.image)
+    elif config["command"] == "dump_boxes":
+        init_db()
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--format", type=str, default="raw", choices=["raw", "voc", "csv"])
+        parser.add_argument("--output", type=str, default="output")
+        args, _ = parser.parse_known_args()
+        boxes = asst.dump_worksheet_boxes()
+        dump.make_writer(args.format, args.output, boxes).write()
 
 if __name__ == "__main__":
     main()

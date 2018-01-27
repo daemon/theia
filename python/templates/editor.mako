@@ -58,6 +58,7 @@ function drawExistingRects(context) {
 }
 
 function start() {
+    window.paint = false;
     ctx.drawImage(img, 0, 0, 600, 800);
     finalCanvas.width = 600;
     finalCanvas.height = 800;
@@ -67,10 +68,7 @@ function start() {
 }
 
 function paintHoverCross(x, y) {
-    ctx.drawImage(finalCanvas, 0, 0, 600, 800)
     ctx.strokeStyle = labelColor(labelId)
-    ctx.lineJoin = "round"
-    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(600, y)
@@ -78,6 +76,15 @@ function paintHoverCross(x, y) {
     ctx.lineTo(x, 800)
     ctx.closePath();
     ctx.stroke();
+
+    ctx.strokeStyle = labelColor(labelId + 1);
+    ctx.beginPath()
+    ctx.moveTo(x - 8, y);
+    ctx.lineTo(x + 8, y);
+    ctx.moveTo(x, y - 8);
+    ctx.lineTo(x, y + 8);
+    ctx.stroke()
+    ctx.closePath();
 }
 
 function paintRect(x, y) {
@@ -86,7 +93,6 @@ function paintRect(x, y) {
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.rect(Math.min(anchorX, x), Math.min(anchorY, y), Math.max(anchorX, x) - Math.min(anchorX, x), Math.max(anchorY, y) - Math.min(anchorY, y));
-    ctx.drawImage(finalCanvas, 0, 0, 600, 800)
     ctx.stroke();
     ctx.closePath();
 }
@@ -123,36 +129,34 @@ function getMousePos(canvas, evt) {
 }
 
 $("#editor").mousedown(function(e) {
-    var mousePos = getMousePos(canvas, e);
-    window.anchorX = mousePos.x;
-    window.anchorY = mousePos.y;
-    window.paint = true;
-    paintRect(anchorX, anchorY);
+    if (paint) {
+        var mousePos = getMousePos(canvas, e);
+        x = mousePos.x;
+        y = mousePos.y;
+        var x1 = Math.min(anchorX, x);
+        var y1 = Math.min(anchorY, y);
+        var w = Math.max(anchorX, x) - x1;
+        var h = Math.max(anchorY, y) - y1;
+        paintLabeledRect(x1, y1, w, h, labelId);
+        rects.push({label_id: labelId, x: x1, y: y1, w: w, h: h})
+    } else {
+        var mousePos = getMousePos(canvas, e);
+        window.anchorX = mousePos.x;
+        window.anchorY = mousePos.y;
+        paintRect(anchorX, anchorY);
+    }
+    paint = !paint;
 });
 
 $("#editor").mousemove(function(e) {
     var mousePos = getMousePos(canvas, e);
     x = mousePos.x;
     y = mousePos.y;
-    if (!window.paint) {
-        paintHoverCross(x, y);
-        return;
-    }
-    paintRect(x, y);
+    ctx.drawImage(finalCanvas, 0, 0, 600, 800);
+    paintHoverCross(x, y);
+    if (paint)
+        paintRect(x, y);
 })
-
-$("#editor").mouseup(function(e) {
-    var mousePos = getMousePos(canvas, e);
-    x = mousePos.x;
-    y = mousePos.y;
-    window.paint = false;
-    var x1 = Math.min(anchorX, x);
-    var y1 = Math.min(anchorY, y);
-    var w = Math.max(anchorX, x) - x1;
-    var h = Math.max(anchorY, y) - y1;
-    paintLabeledRect(x1, y1, w, h, labelId);
-    rects.push({label_id: labelId, x: x1, y: y1, w: w, h: h})
-});
 
 </script>
 <%include file="components/footer.mako"/>

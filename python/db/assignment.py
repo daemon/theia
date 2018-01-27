@@ -84,13 +84,20 @@ def create_local_assignment(profile_id, image_paths, connection=base.INIT_CONNEC
     assign = Assignment.create(profile_id, 0, 0, connection=connection)
     Worksheet.create_all(assign.id, image_paths, [""] * len(image_paths), connection=connection)
 
+@base.access_point()
+def dump_worksheet_boxes(connection=base.INIT_CONNECTION):
+    stmt = "SELECT * FROM worksheets JOIN worksheet_boxes ON worksheet_id=worksheets.id JOIN box_labels ON label_id=box_labels.id"
+    c = connection.cursor()
+    c.execute(stmt)
+    return [(Worksheet(*row[:4]), WorksheetBox(*row[4:8], label=Label(*row[8:]))) for row in c.fetchall()]
+
 class WorksheetBox(object):
     def __init__(self, *args, label=None):
         base.init_from_row(self, base.column_names(worksheet_box), args)
         self.label = label
 
     def dict(self):
-        return dict(box_data=json.loads(self.box_data), label_id=self.label.id)
+        return dict(box_data=json.loads(self.box_data), label_id=self.label.id, label_name=self.label.name)
 
     @classmethod
     @base.access_point()
@@ -130,6 +137,9 @@ class Label(object):
 class Worksheet(object):
     def __init__(self, *args):
         base.init_from_row(self, base.column_names(worksheet), args)
+
+    def dict(self):
+        return dict(id=self.id, assignment_id=self.assignment_id, image_path=self.image_path, points_json=self.points_json)
 
     @classmethod
     @base.access_point()
