@@ -30,6 +30,9 @@ def bbox_to_xml(bbox):
 def labeled_box_to_xml(labeled_box):
     root = ET.Element("object")
     _txt_subelem(root, "name", text=labeled_box["label_name"])
+    _txt_subelem(root, "pose", text="Unspecified")
+    _txt_subelem(root, "difficult", text=0)
+    _txt_subelem(root, "truncated", text=0)
     root.append(bbox_to_xml(labeled_box["box_data"]))
     return root
 
@@ -103,9 +106,11 @@ class VocWriter(object):
         dev_index = int(0.9 * len(names))
         train_names = names[:train_index]
         dev_names = names[train_index:dev_index]
+        trainval_names = names[:dev_index]
         test_names = names[dev_index:]
         write_names(train_names, "train")
         write_names(dev_names, "val")
+        write_names(trainval_names, "trainval")
         write_names(test_names, "test")
 
     def write_annotations(self):
